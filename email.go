@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 
+	"time"
+
 	_ "github.com/go-sql-driver/mysql"
 	gomail "gopkg.in/gomail.v2"
 )
@@ -25,6 +27,8 @@ type BookingData struct {
 	CustomerEmail string
 	CustomerPhone string
 	NumberOfRoom  int
+	CheckInDate   time.Time
+	CheckOutDate  time.Time
 	HotelID       int
 }
 
@@ -38,30 +42,36 @@ func main() {
 	// router := mux.NewRouter().StrictSlash(true)
 	// router.HandleFunc("/", EmailPage)
 	// log.Fatal(http.ListenAndServe(":8080", router))
-
+	fmt.Println(time.Now())
 	EmailPage()
+	fmt.Println(time.Now())
 
 }
 
 func EmailPage() {
 	//hotelid := 1
-	bookingid := 2
-	emailtypeid := 2
+	bookingid := 3
+	emailtypeid := 0
 
 	BookingDet := getBookingDet(bookingid)
 
 	hotelid := BookingDet.HotelID
 	//fmt.Println("Hotel Id is : ", hotelid)
 	HotelCred := getHotelCred(hotelid)
+	var EmailTemplate string
+	if emailtypeid == 0 {
+		bookingStatus := getBookingStatus(bookingid)
+		EmailTemplate = getDefaultTemplate(bookingStatus)
 
-	EmailTemplate := getEmailTemplate(emailtypeid)
-
-	EmailAction(EmailTemplate, HotelCred, BookingDet)
+	} else {
+		EmailTemplate = getEmailTemplate(emailtypeid)
+	}
+	emailAction(EmailTemplate, HotelCred, BookingDet)
 	//fmt.Fprint(w, "mail sent")
 
 }
 
-func EmailAction(EmailTemplate string, HotelCredential HotelData, BookingDetail BookingData) {
+func emailAction(EmailTemplate string, HotelCredential HotelData, BookingDetail BookingData) {
 	// ContentEmail := emaildet{
 	// 	mid: r.FormValue("mId"),
 	// 	//customerName:  r.FormValue("customerName"),
@@ -88,6 +98,7 @@ func getHotelCred(hotelId int) HotelData {
 	db, err := sql.Open("mysql", "root:@/user")
 	checkErr(err)
 	rows, err := db.Query("SELECT hotelEmail, hotelPassword, host, port FROM hotel_detail WHERE hotelId !=" + strconv.Itoa(hotelId))
+	defer db.Close()
 	var HData HotelData
 	for rows.Next() {
 		err := rows.Scan(&HData.hotelEmail, &HData.hotelPassword, &HData.host, &HData.port)
@@ -108,7 +119,7 @@ func getHotelCred(hotelId int) HotelData {
 
 func getBookingDet(bookingId int) BookingData {
 
-	db, err := sql.Open("mysql", "root:@/user")
+	db, err := sql.Open("mysql", "root:@/user?parseTime=true")
 	checkErr(err)
 
 	err = db.Ping() //checking Db connection
@@ -123,11 +134,12 @@ func getBookingDet(bookingId int) BookingData {
 	Id := strconv.Itoa(bookingId)
 	//fmt.Println(reflect.TypeOf(bookingId))
 	//fmt.Println(Id)
-	rows, err := db.Query("SELECT CustomerName, CustomerEmail, CustomerPhone, NumberOfRoom, HotelID FROM `booking_detail` WHERE BookingId =" + Id)
+	rows, err := db.Query("SELECT CustomerName, CustomerEmail, CustomerPhone, NumberOfRoom, CheckInDate, CheckOutDate, HotelID FROM `booking_detail` WHERE BookingId =" + Id)
 
+	defer db.Close()
 	var BData BookingData
 	for rows.Next() {
-		err := rows.Scan(&BData.CustomerName, &BData.CustomerEmail, &BData.CustomerPhone, &BData.NumberOfRoom, &BData.HotelID)
+		err := rows.Scan(&BData.CustomerName, &BData.CustomerEmail, &BData.CustomerPhone, &BData.NumberOfRoom, &BData.CheckInDate, &BData.CheckOutDate, &BData.HotelID)
 		checkErr(err)
 		//fmt.Println("////" + BData.CustomerName + "????" + BData.CustomerEmail + "????" + BData.CustomerPhone + "????" + BData.NumberOfRoom + "???? " + BData.HotelID)
 
@@ -136,6 +148,8 @@ func getBookingDet(bookingId int) BookingData {
 			CustomerEmail: BData.CustomerEmail,
 			CustomerPhone: BData.CustomerPhone,
 			NumberOfRoom:  BData.NumberOfRoom,
+			CheckInDate:   BData.CheckInDate,
+			CheckOutDate:  BData.CheckOutDate,
 			HotelID:       BData.HotelID,
 		}
 		fmt.Println("Data from db : ", BData)
@@ -145,17 +159,41 @@ func getBookingDet(bookingId int) BookingData {
 
 }
 
+func getBookingStatus(bookingId int) string {
+	db, err := sql.Open("mysql", "root:@/user")
+	checkErr(err)
+	var bookingStatus string
+	err = db.QueryRow("SELECT BookingStatusId FROM booking_detail WHERE bookingId = " + strconv.Itoa(bookingId)).Scan(&bookingStatus)
+	defer db.Close()
+	checkErr(err)
+	fmt.Println("bookingStatus is : ", bookingStatus)
+	return bookingStatus
+
+}
+
 func getEmailTemplate(templateId int) string {
 	db, err := sql.Open("mysql", "root:@/user")
 	checkErr(err)
 	var tempUrl string
 	err = db.QueryRow("SELECT templateUrl FROM template_detail WHERE templateId =" + strconv.Itoa(templateId)).Scan(&tempUrl)
-	//defer db.Close()
+	defer db.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("template url is : ", tempUrl)
 	return tempUrl
+}
+
+func getDefaultTemplate(bookingStatus string) string {
+	db, err := sql.Open("mysql", "root:@/user")
+	checkErr(err)
+	var defaulttempUrl string
+	err = db.QueryRow("SELECT BS_TemplateUrl FROM booking_status WHERE BookingStatusId = '" + bookingStatus + "'").Scan(&defaulttempUrl)
+	defer db.Close()
+	checkErr(err)
+	fmt.Println("template url is : ", defaulttempUrl)
+	return defaulttempUrl
+
 }
 
 func getTemplate(file string, data BookingData) string {
